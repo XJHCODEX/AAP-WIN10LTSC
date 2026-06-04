@@ -1,0 +1,7 @@
+---
+- name: Windows connectivity (WinRM smoke test)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Ping Windows host over WinRM
+      ansible.windows.win_ping:

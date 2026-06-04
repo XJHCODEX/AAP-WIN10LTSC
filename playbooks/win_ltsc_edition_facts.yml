@@ -1,0 +1,31 @@
+---
+- name: Windows 10 LTSC edition and servicing facts
+  hosts: windows
+  gather_facts: true
+  tasks:
+    - name: Collect LTSC edition details
+      ansible.windows.win_shell: |
+        $os = Get-CimInstance Win32_OperatingSystem
+        $cv = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        @{
+          Caption = $os.Caption
+          Version = $os.Version
+          BuildNumber = $os.BuildNumber
+          OSArchitecture = $os.OSArchitecture
+          ReleaseId = $cv.ReleaseId
+          DisplayVersion = $cv.DisplayVersion
+          ProductName = $cv.ProductName
+          LTSC = ($os.Caption -match 'LTSC')
+        } | ConvertTo-Json -Compress
+      register: ltsc_json
+      changed_when: false
+
+    - name: Display LTSC edition facts
+      ansible.builtin.debug:
+        msg:
+          - "Caption: {{ _ltsc.Caption }}"
+          - "Build: {{ _ltsc.BuildNumber }} | Version: {{ _ltsc.Version }}"
+          - "ReleaseId: {{ _ltsc.ReleaseId | default('n/a') }} | DisplayVersion: {{ _ltsc.DisplayVersion | default('n/a') }}"
+          - "LTSC channel: {{ _ltsc.LTSC }}"
+      vars:
+        _ltsc: "{{ ltsc_json.stdout | from_json }}"

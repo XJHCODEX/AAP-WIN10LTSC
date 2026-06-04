@@ -1,0 +1,22 @@
+---
+- name: Windows disk and volume facts
+  hosts: windows
+  gather_facts: true
+  tasks:
+    - name: Gather disk facts
+      community.windows.win_disk_facts:
+
+    - name: Physical disks
+      ansible.builtin.debug:
+        msg: "[Disk {{ item.number }}] {{ item.friendly_name | default('disk') }} | {{ item.size | default(0) | int | filesizeformat(true) }} | {{ item.operational_status | default('n/a') }}"
+      loop: "{{ ansible_facts.disks | default([]) }}"
+      loop_control:
+        label: "disk-{{ item.number }}"
+
+    - name: Volumes with free space
+      ansible.builtin.debug:
+        msg: "{{ item.drive_letter | default('?') }}: {{ item.label | default('') }} | {{ item.size | default(0) | int | filesizeformat(true) }} total, {{ item.free_space | default(0) | int | filesizeformat(true) }} free"
+      loop: "{{ ansible_facts.disks | default([]) | map(attribute='partitions') | flatten | map(attribute='volumes') | flatten | list }}"
+      when: item.size is defined
+      loop_control:
+        label: "{{ item.drive_letter | default('vol') }}"

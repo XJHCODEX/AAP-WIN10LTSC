@@ -1,0 +1,21 @@
+---
+- name: Installed packages inventory (read-only)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Sample installed packages
+      ansible.windows.win_shell: |
+        @(
+          Get-Package | Select-Object -First {{ package_sample_limit | default(20) | int }} Name, Version, ProviderName
+        ) | ConvertTo-Json -Compress
+      register: pkg_out
+      changed_when: false
+
+    - name: Display packages
+      ansible.builtin.debug:
+        msg: "{{ item.Name }} {{ item.Version }} ({{ item.ProviderName }})"
+      vars:
+        _pkgs: "{{ pkg_out.stdout | from_json }}"
+      loop: "{{ _pkgs if _pkgs is sequence else [_pkgs] }}"
+      loop_control:
+        label: "{{ item.Name }}"

@@ -1,0 +1,13 @@
+---
+- name: Gather Windows facts
+  hosts: windows
+  gather_facts: true
+  tasks:
+    - name: Show key OS facts
+      ansible.builtin.debug:
+        msg:
+          hostname: "{{ ansible_hostname | default('n/a') }}"
+          distribution: "{{ ansible_distribution | default('Windows') }}"
+          version: "{{ ansible_distribution_version | default(omit) }}"
+          arch: "{{ ansible_architecture | default(omit) }}"
+          total_memory_mb: "{{ ansible_memtotal_mb | default(omit) }}"
