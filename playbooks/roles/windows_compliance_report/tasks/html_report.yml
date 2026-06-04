@@ -17,22 +17,101 @@
   delegate_to: localhost
   when: compliance_report_html_enabled | bool
 
-- name: Ensure HTML report directory on Windows host
+- name: Ensure local HTML copy directory on Windows host
   ansible.windows.win_file:
     path: "{{ compliance_report_html_dir }}"
     state: directory
   when: compliance_report_html_enabled | bool
 
-- name: Deploy HTML report to Windows host
+- name: Deploy HTML report file on Windows host
   ansible.windows.win_copy:
     src: "{{ compliance_report_controller_staging }}/{{ inventory_hostname }}-compliance.html"
     dest: "{{ compliance_report_html_path }}"
   when: compliance_report_html_enabled | bool
 
-- name: HTML report ready for demo
+- name: Ensure IIS web server role for HTTP demo access
+  ansible.windows.win_optional_feature:
+    name: IIS-WebServerRole
+    state: present
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Ensure IIS content directory
+  ansible.windows.win_file:
+    path: "{{ compliance_report_iis_path }}"
+    state: directory
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Publish HTML as IIS site index
+  ansible.windows.win_copy:
+    src: "{{ compliance_report_controller_staging }}/{{ inventory_hostname }}-compliance.html"
+    dest: "{{ compliance_report_iis_path }}/index.html"
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Configure IIS site for compliance report
+  ansible.windows.win_shell: |
+    Import-Module WebAdministration -ErrorAction Stop
+    $siteName = '{{ compliance_report_iis_site_name }}'
+    $path = '{{ compliance_report_iis_path }}'
+    $port = {{ compliance_report_http_port | int }}
+    if (-not (Get-Website -Name $siteName -ErrorAction SilentlyContinue)) {
+      New-Website -Name $siteName -PhysicalPath $path -Port $port | Out-Null
+    } else {
+      Set-ItemProperty "IIS:\Sites\$siteName" -Name physicalPath -Value $path
+      $binding = Get-WebBinding -Name $siteName -Protocol http -ErrorAction SilentlyContinue
+      if (-not $binding) {
+        New-WebBinding -Name $siteName -Protocol http -Port $port
+      }
+    }
+    Start-Website -Name $siteName
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Allow inbound TCP for compliance report HTTP (Windows Firewall)
+  ansible.windows.win_firewall_rule:
+    name: "{{ compliance_report_firewall_rule_name }}"
+    localport: "{{ compliance_report_http_port | int }}"
+    action: allow
+    direction: in
+    protocol: tcp
+    state: present
+    enabled: true
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Build compliance report browser URL
+  ansible.builtin.set_fact:
+    compliance_report_url: "http://{{ compliance_report_access_host }}:{{ compliance_report_http_port }}/"
+  vars:
+    compliance_report_access_host: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Compliance report URLs for demo
   ansible.builtin.debug:
     msg:
-      - "Compliance HTML report: {{ compliance_report_html_path }}"
-      - "On the Windows host, open File Explorer and double-click the file, or run:"
-      - "  Start-Process '{{ compliance_report_html_path }}'"
-  when: compliance_report_html_enabled | bool
+      - "Browser URL (from your workstation): {{ compliance_report_url }}"
+      - "Local file on server: {{ compliance_report_html_path }}"
+      - "HTTP port {{ compliance_report_http_port }} opened in Windows Firewall (rule: {{ compliance_report_firewall_rule_name }})"
+      - "WinRM port 45986 is separate — it does not serve this HTML page."
+      - "If the URL does not load remotely, also allow TCP {{ compliance_report_http_port }} on your cloud/network firewall (NSG/security group)."
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: HTML report file only (no HTTP server)
+  ansible.builtin.debug:
+    msg:
+      - "Compliance HTML saved locally: {{ compliance_report_html_path }}"
+      - "HTTP publishing disabled (compliance_report_http_enabled=false). Enable it to use http://<host-ip>:<port>/"
+  when:
+    - compliance_report_html_enabled | bool
+    - not (compliance_report_http_enabled | bool)

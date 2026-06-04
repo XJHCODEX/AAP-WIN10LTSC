@@ -15,8 +15,15 @@ compliance_max_defender_signature_age_days: 7
 # Minimum acceptable password length (CIS-aligned baseline)
 compliance_min_password_length: 8
 
-# HTML report (demo UI on the Windows host)
+# HTML report
 compliance_report_html_enabled: true
 compliance_report_html_path: "C:/Users/Public/Documents/AAP-LTSC-Compliance-Report.html"
 compliance_report_html_dir: "C:/Users/Public/Documents"
 compliance_report_controller_staging: "/runner/project/reports"
+
+# Publish report at http://<ansible_host>:<port>/ (requires IIS + firewall)
+compliance_report_http_enabled: true
+compliance_report_http_port: 8080
+compliance_report_iis_site_name: AAP-Compliance
+compliance_report_iis_path: "C:/inetpub/wwwroot/aap-compliance"
+compliance_report_firewall_rule_name: AAP-LTSC-Compliance-HTTP
