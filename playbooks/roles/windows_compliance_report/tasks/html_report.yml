@@ -94,6 +94,22 @@
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
 
+- name: Publish HTML with full filename (direct URL)
+  ansible.windows.win_copy:
+    src: "{{ compliance_report_controller_staging }}/{{ inventory_hostname }}-compliance.html"
+    dest: "{{ compliance_report_iis_path }}/AAP-LTSC-Compliance-Report.html"
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Deploy IIS web.config for default document
+  ansible.builtin.template:
+    src: web.config.j2
+    dest: "{{ compliance_report_iis_path }}/web.config"
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
 - name: Configure IIS site for compliance report (appcmd)
   ansible.windows.win_shell: |
     $ErrorActionPreference = 'Stop'
@@ -113,11 +129,68 @@
       & $appcmd set site "$siteName" -physicalPath:$path
       & $appcmd set site "$siteName" /bindings:$binding
     }
+    & $appcmd set apppool "$siteName" /managedRuntimeVersion:""
+    & $appcmd start apppool "$siteName"
     & $appcmd start site "$siteName"
     if ($LASTEXITCODE -ne 0) { throw "appcmd start site failed (exit $LASTEXITCODE)" }
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
+
+- name: Grant IIS accounts read access to site folder
+  ansible.windows.win_shell: |
+    $path = '{{ compliance_report_iis_path | replace("/", "\\") }}'
+    $siteName = '{{ compliance_report_iis_site_name }}'
+    icacls $path /inheritance:e | Out-Null
+    icacls $path /grant 'IIS_IUSRS:(OI)(CI)RX' /T | Out-Null
+    icacls $path /grant 'IUSR:(OI)(CI)RX' /T | Out-Null
+    icacls $path /grant ('IIS AppPool\' + $siteName + ':(OI)(CI)RX') /T | Out-Null
+    icacls $path /grant 'BUILTIN\Users:(OI)(CI)RX' /T | Out-Null
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Smoke test HTTP on localhost
+  ansible.windows.win_shell: |
+    $urls = @(
+      'http://127.0.0.1:{{ compliance_report_http_port }}/',
+      'http://127.0.0.1:{{ compliance_report_http_port }}/index.html',
+      'http://127.0.0.1:{{ compliance_report_http_port }}/AAP-LTSC-Compliance-Report.html'
+    )
+    $results = foreach ($u in $urls) {
+      try {
+        $r = Invoke-WebRequest -Uri $u -UseBasicParsing -TimeoutSec 15
+        [PSCustomObject]@{ url = $u; status = [int]$r.StatusCode; ok = $true }
+      } catch {
+        $code = $null
+        if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+        [PSCustomObject]@{ url = $u; status = $code; ok = $false; error = $_.Exception.Message }
+      }
+    }
+    $results | ConvertTo-Json -Compress
+  register: http_smoke
+  changed_when: false
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Show HTTP smoke test results
+  ansible.builtin.debug:
+    var: http_smoke.stdout | from_json
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
+- name: Fail when localhost HTTP check does not return 200
+  ansible.builtin.fail:
+    msg: >-
+      IIS returned an error for local HTTP checks: {{ http_smoke.stdout }}.
+      Site content path is {{ compliance_report_iis_path }} (not Public Documents).
+      Check IIS logs under C:\inetpub\logs\LogFiles\ and Event Viewer.
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+    - (http_smoke.stdout | from_json | selectattr('ok', 'equalto', false) | list | length) > 0
 
 - name: Allow inbound TCP for compliance report HTTP (Windows Firewall)
   community.windows.win_firewall_rule:
@@ -145,11 +218,14 @@
 - name: Compliance report URLs for demo
   ansible.builtin.debug:
     msg:
-      - "Browser URL (from your workstation): {{ compliance_report_url }}"
-      - "Local file on server: {{ compliance_report_html_path }}"
-      - "HTTP port {{ compliance_report_http_port }} opened in Windows Firewall (rule: {{ compliance_report_firewall_rule_name }})"
+      - "Browser URL (root): {{ compliance_report_url }}"
+      - "Direct file URL: http://{{ compliance_report_access_host }}:{{ compliance_report_http_port }}/AAP-LTSC-Compliance-Report.html"
+      - "IIS content folder (served): {{ compliance_report_iis_path }}"
+      - "Local copy only (not served by IIS): {{ compliance_report_html_path }}"
       - "WinRM port 45986 is separate — it does not serve this HTML page."
-      - "If the URL does not load remotely, also allow TCP {{ compliance_report_http_port }} on your cloud/network firewall (NSG/security group)."
+      - "If remote access fails, allow TCP {{ compliance_report_http_port }} on cloud/network firewall (NSG)."
+  vars:
+    compliance_report_access_host: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
