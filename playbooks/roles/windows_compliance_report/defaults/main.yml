@@ -14,3 +14,9 @@ compliance_max_defender_signature_age_days: 7
 
 # Minimum acceptable password length (CIS-aligned baseline)
 compliance_min_password_length: 8
+
+# HTML report (demo UI on the Windows host)
+compliance_report_html_enabled: true
+compliance_report_html_path: "C:/Users/Public/Documents/AAP-LTSC-Compliance-Report.html"
+compliance_report_html_dir: "C:/Users/Public/Documents"
+compliance_report_controller_staging: "/runner/project/reports"

@@ -1,0 +1,38 @@
+---
+- name: Ensure controller staging directory for HTML reports
+  ansible.builtin.file:
+    path: "{{ compliance_report_controller_staging }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+
+- name: Render HTML compliance report
+  ansible.builtin.template:
+    src: compliance_report.html.j2
+    dest: "{{ compliance_report_controller_staging }}/{{ inventory_hostname }}-compliance.html"
+    mode: "0644"
+  vars:
+    report: "{{ compliance_report }}"
+  delegate_to: localhost
+  when: compliance_report_html_enabled | bool
+
+- name: Ensure HTML report directory on Windows host
+  ansible.windows.win_file:
+    path: "{{ compliance_report_html_dir }}"
+    state: directory
+  when: compliance_report_html_enabled | bool
+
+- name: Deploy HTML report to Windows host
+  ansible.windows.win_copy:
+    src: "{{ compliance_report_controller_staging }}/{{ inventory_hostname }}-compliance.html"
+    dest: "{{ compliance_report_html_path }}"
+  when: compliance_report_html_enabled | bool
+
+- name: HTML report ready for demo
+  ansible.builtin.debug:
+    msg:
+      - "Compliance HTML report: {{ compliance_report_html_path }}"
+      - "On the Windows host, open File Explorer and double-click the file, or run:"
+      - "  Start-Process '{{ compliance_report_html_path }}'"
+  when: compliance_report_html_enabled | bool

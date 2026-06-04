@@ -211,7 +211,7 @@
 
 - name: Compliance findings (one line per control)
   ansible.builtin.debug:
-    msg: "[{{ item.result }}] {{ item.id }} | {{ item.category }} | {{ item.title }} â€” {{ item.evidence }}"
+    msg: "[{{ item.result }}] {{ item.id }} | {{ item.category }} | {{ item.title }} - {{ item.evidence }}"
   loop: "{{ compliance_report.checks }}"
   loop_control:
     label: "{{ item.id }} {{ item.result }}"
@@ -228,7 +228,10 @@
   ansible.builtin.debug:
     msg:
       - "============================================================"
-      - " End of compliance report â€” {{ compliance_report.hostname }}"
+      - " End of compliance report - {{ compliance_report.hostname }}"
       - " Overall score: {{ compliance_report.summary.score_percent }}%"
       - "============================================================"
+
+- name: Generate HTML compliance report for demo
+  ansible.builtin.import_tasks: html_report.yml
 
