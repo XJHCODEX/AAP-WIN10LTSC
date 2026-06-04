@@ -29,3 +29,10 @@ compliance_report_iis_path: "C:/inetpub/wwwroot/aap-compliance"
 compliance_report_firewall_rule_name: AAP-LTSC-Compliance-HTTP
 # Set false if port 8080 (or compliance_report_http_port) is already allowed on the host/cloud
 compliance_report_manage_firewall: false
+# Reboot automatically when IIS optional features require it (recommended for first run)
+compliance_report_iis_reboot: true
+compliance_report_iis_features:
+  - IIS-WebServerRole
+  - IIS-WebServerManagementTools
+  - IIS-StaticContent
+  - IIS-DefaultDocument

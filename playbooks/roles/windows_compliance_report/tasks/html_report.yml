@@ -29,18 +29,30 @@
     dest: "{{ compliance_report_html_path }}"
   when: compliance_report_html_enabled | bool
 
-- name: Ensure IIS web server role for HTTP demo access
+- name: Ensure IIS components for static HTML hosting
   ansible.windows.win_optional_feature:
-    name: IIS-WebServerRole
+    name: "{{ item }}"
     state: present
+  loop: "{{ compliance_report_iis_features }}"
+  register: iis_features
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
 
-- name: Ensure IIS management tools (WebAdministration / appcmd)
-  ansible.windows.win_optional_feature:
-    name: IIS-WebServerManagementTools
-    state: present
+- name: Reboot when IIS installation requires it
+  ansible.windows.win_reboot:
+    pre_reboot_delay: 15
+    reboot_timeout: 600
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+    - compliance_report_iis_reboot | bool
+    - iis_features.results | selectattr('reboot_required', 'equalto', true) | list | length > 0
+
+- name: Query IIS World Wide Web Publishing Service
+  ansible.windows.win_service_info:
+    name: W3SVC
+  register: w3svc_info
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
@@ -53,6 +65,18 @@
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
+    - w3svc_info.exists | bool
+
+- name: IIS not available after feature install
+  ansible.builtin.fail:
+    msg: >-
+      IIS service W3SVC is not installed. Re-run this job after Windows finishes
+      installing IIS (a reboot may have been required). To allow automatic reboot,
+      set compliance_report_iis_reboot: true (default).
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+    - not (w3svc_info.exists | default(false) | bool)
 
 - name: Ensure IIS content directory
   ansible.windows.win_file:
