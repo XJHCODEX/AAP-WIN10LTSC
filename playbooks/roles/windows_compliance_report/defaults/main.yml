@@ -1,0 +1,16 @@
+---
+# Read-only compliance profile for Windows 10 LTSC workstation demos.
+# Not a full CIS/STIG scan — structured audit suitable for AAP reporting.
+
+compliance_report_profile: ltsc_workstation
+compliance_report_title: "Windows 10 LTSC Workstation Compliance Report"
+compliance_report_version: "1.0"
+
+# WARN if no hotfix within this many days (LTSC still needs patching)
+compliance_max_patch_age_days: 90
+
+# WARN if Defender signatures older than this many days
+compliance_max_defender_signature_age_days: 7
+
+# Minimum acceptable password length (CIS-aligned baseline)
+compliance_min_password_length: 8
