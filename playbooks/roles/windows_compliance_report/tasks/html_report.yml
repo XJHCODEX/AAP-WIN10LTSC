@@ -102,10 +102,10 @@
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
 
-- name: Deploy IIS web.config for default document
-  ansible.windows.win_template:
-    src: web.config.j2
-    dest: "{{ compliance_report_iis_path }}/web.config"
+- name: Remove site web.config (can cause HTTP 500 on static-only sites)
+  ansible.windows.win_file:
+    path: "{{ compliance_report_iis_path }}/web.config"
+    state: absent
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
@@ -144,6 +144,16 @@
     }
     & $appcmd set app "$siteName/" /applicationPool:$siteName
     if ($LASTEXITCODE -ne 0) { throw "appcmd set app applicationPool failed (exit $LASTEXITCODE)" }
+    & $appcmd set config "$siteName/" /section:anonymousAuthentication /enabled:true
+    & $appcmd set config "$siteName/" /section:defaultDocument /enabled:true /+files.[value='index.html']
+    $others = & $appcmd list sites /state:* /text:name
+    foreach ($s in $others) {
+      if ([string]::IsNullOrWhiteSpace($s)) { continue }
+      $n = $s.Trim()
+      if ($n -eq $siteName) { continue }
+      & $appcmd set site $n "/-bindings.[protocol='http',bindingInformation='*:${port}:']" 2>$null | Out-Null
+    }
+    & $appcmd recycle apppool "$siteName"
     & $appcmd start apppool "$siteName"
     & $appcmd start site "$siteName"
     if ($LASTEXITCODE -ne 0) { throw "appcmd start site failed (exit $LASTEXITCODE)" }
@@ -196,12 +206,44 @@
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
 
+- name: Collect IIS diagnostics when HTTP smoke test fails
+  ansible.windows.win_shell: |
+    $siteName = '{{ compliance_report_iis_site_name }}'
+    $path = '{{ compliance_report_iis_path_win }}'
+    $appcmd = Join-Path $env:windir 'system32\inetsrv\appcmd.exe'
+    $diag = [ordered]@{}
+    $diag.sites = & $appcmd list site
+    $diag.apppools = & $appcmd list apppool
+    $diag.bindings = & $appcmd list site "$siteName" /config /section:bindings
+    $diag.files = Get-ChildItem -LiteralPath $path -ErrorAction SilentlyContinue | Select-Object Name, Length
+    $logRoot = 'C:\inetpub\logs\LogFiles'
+    if (Test-Path $logRoot) {
+      $log = Get-ChildItem -Path $logRoot -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      if ($log) { $diag.last_iis_log_lines = Get-Content -LiteralPath $log.FullName -Tail 8 }
+    }
+    $diag | ConvertTo-Json -Depth 5 -Compress
+  register: iis_diag
+  changed_when: false
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+    - (http_smoke.stdout | from_json | selectattr('ok', 'equalto', false) | list | length) > 0
+
+- name: Show IIS diagnostics
+  ansible.builtin.debug:
+    var: iis_diag.stdout
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+    - (http_smoke.stdout | from_json | selectattr('ok', 'equalto', false) | list | length) > 0
+
 - name: Fail when localhost HTTP check does not return 200
   ansible.builtin.fail:
     msg: >-
       IIS returned an error for local HTTP checks: {{ http_smoke.stdout }}.
       Site content path is {{ compliance_report_iis_path }} (not Public Documents).
-      Check IIS logs under C:\inetpub\logs\LogFiles\ and Event Viewer.
+      IIS diagnostics: {{ iis_diag.stdout | default('n/a') }}.
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
