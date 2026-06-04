@@ -103,7 +103,7 @@
     - compliance_report_http_enabled | bool
 
 - name: Deploy IIS web.config for default document
-  ansible.builtin.template:
+  ansible.windows.win_template:
     src: web.config.j2
     dest: "{{ compliance_report_iis_path }}/web.config"
   when:
@@ -121,6 +121,12 @@
     $path = '{{ compliance_report_iis_path | replace("/", "\\") }}'
     $port = {{ compliance_report_http_port | int }}
     $binding = "http/*:${port}:"
+    & $appcmd list apppool "$siteName" 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+      & $appcmd add apppool /name:$siteName
+      if ($LASTEXITCODE -ne 0) { throw "appcmd add apppool failed (exit $LASTEXITCODE)" }
+    }
+    & $appcmd set apppool "$siteName" /managedRuntimeVersion:""
     & $appcmd list site "$siteName" 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) {
       & $appcmd add site /name:$siteName /physicalPath:$path /bindings:$binding
@@ -129,7 +135,8 @@
       & $appcmd set site "$siteName" -physicalPath:$path
       & $appcmd set site "$siteName" /bindings:$binding
     }
-    & $appcmd set apppool "$siteName" /managedRuntimeVersion:""
+    & $appcmd set app "$siteName/" /applicationPool:$siteName
+    if ($LASTEXITCODE -ne 0) { throw "appcmd set app applicationPool failed (exit $LASTEXITCODE)" }
     & $appcmd start apppool "$siteName"
     & $appcmd start site "$siteName"
     if ($LASTEXITCODE -ne 0) { throw "appcmd start site failed (exit $LASTEXITCODE)" }
@@ -145,6 +152,7 @@
     icacls $path /grant 'IIS_IUSRS:(OI)(CI)RX' /T | Out-Null
     icacls $path /grant 'IUSR:(OI)(CI)RX' /T | Out-Null
     icacls $path /grant ('IIS AppPool\' + $siteName + ':(OI)(CI)RX') /T | Out-Null
+    icacls $path /grant 'IIS AppPool\DefaultAppPool:(OI)(CI)RX' /T | Out-Null
     icacls $path /grant 'BUILTIN\Users:(OI)(CI)RX' /T | Out-Null
   when:
     - compliance_report_html_enabled | bool
