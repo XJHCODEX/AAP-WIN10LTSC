@@ -144,8 +144,8 @@
     }
     & $appcmd set app "$siteName/" /applicationPool:$siteName
     if ($LASTEXITCODE -ne 0) { throw "appcmd set app applicationPool failed (exit $LASTEXITCODE)" }
-    & $appcmd set config "$siteName/" /section:anonymousAuthentication /enabled:true
-    & $appcmd set config "$siteName/" /section:defaultDocument /enabled:true /+files.[value='index.html']
+    & $appcmd clear config "$siteName/" -section:defaultDocument 2>$null | Out-Null
+    & $appcmd clear config "$siteName/" -section:system.webServer/defaultDocument 2>$null | Out-Null
     $others = & $appcmd list sites /state:* /text:name
     foreach ($s in $others) {
       if ([string]::IsNullOrWhiteSpace($s)) { continue }
@@ -213,9 +213,10 @@
     $appcmd = Join-Path $env:windir 'system32\inetsrv\appcmd.exe'
     $diag = [ordered]@{}
     $diag.sites = & $appcmd list site
-    $diag.apppools = & $appcmd list apppool
-    $diag.bindings = & $appcmd list site "$siteName" /config /section:bindings
-    $diag.files = Get-ChildItem -LiteralPath $path -ErrorAction SilentlyContinue | Select-Object Name, Length
+    $diag.apppools = & $appcmd list apppool /state:*
+    $diag.site_state = & $appcmd list site "$siteName" /state:*
+    $diag.files = @(Get-ChildItem -LiteralPath $path -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) $($_.Length)" })
+    $diag.web_config_exists = Test-Path -LiteralPath (Join-Path $path 'web.config')
     $logRoot = 'C:\inetpub\logs\LogFiles'
     if (Test-Path $logRoot) {
       $log = Get-ChildItem -Path $logRoot -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
