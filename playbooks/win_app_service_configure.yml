@@ -1,0 +1,10 @@
+---
+- name: Configure Windows application service state
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: "Set service {{ service_name | default('W3SVC') }} to {{ service_state | default('started') }}"
+      ansible.windows.win_service:
+        name: "{{ service_name | default('W3SVC') }}"
+        state: "{{ service_state | default('started') }}"
+        start_mode: "{{ service_start_mode | default('auto') }}"

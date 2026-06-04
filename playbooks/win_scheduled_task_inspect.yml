@@ -1,0 +1,22 @@
+---
+- name: Scheduled tasks sample (read-only)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: List scheduled tasks
+      ansible.windows.win_shell: |
+        @(
+          Get-ScheduledTask |
+            Select-Object -First {{ scheduled_task_sample | default(15) | int }} TaskName, State, TaskPath
+        ) | ConvertTo-Json -Compress
+      register: task_out
+      changed_when: false
+
+    - name: Display scheduled tasks
+      ansible.builtin.debug:
+        msg: "{{ item.TaskPath }}{{ item.TaskName }} — {{ item.State }}"
+      vars:
+        _tasks: "{{ task_out.stdout | from_json }}"
+      loop: "{{ _tasks if _tasks is sequence else [_tasks] }}"
+      loop_control:
+        label: "{{ item.TaskName }}"

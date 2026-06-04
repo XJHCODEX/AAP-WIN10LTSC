@@ -1,0 +1,34 @@
+---
+- name: IIS web workload status (read-only)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Collect IIS feature and site state
+      ansible.windows.win_shell: |
+        $feature = (Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole -ErrorAction SilentlyContinue).State
+        $sites = @()
+        if ($feature -eq 'Enabled') {
+          Import-Module WebAdministration -ErrorAction SilentlyContinue
+          $sites = @(Get-Website | Select-Object Name, State, PhysicalPath)
+        }
+        @{ IISWebServerRole = $feature; SiteCount = $sites.Count; Sites = $sites } | ConvertTo-Json -Depth 5 -Compress
+      register: iis_out
+      changed_when: false
+
+    - name: IIS summary
+      ansible.builtin.debug:
+        msg:
+          - "IIS-WebServerRole: {{ _iis.IISWebServerRole }}"
+          - "Sites configured: {{ _iis.SiteCount }}"
+      vars:
+        _iis: "{{ iis_out.stdout | from_json }}"
+
+    - name: IIS site details
+      ansible.builtin.debug:
+        msg: "{{ item.Name }} | {{ item.State }} | {{ item.PhysicalPath }}"
+      vars:
+        _iis: "{{ iis_out.stdout | from_json }}"
+      loop: "{{ _iis.Sites | default([]) }}"
+      when: _iis.SiteCount | int > 0
+      loop_control:
+        label: "{{ item.Name }}"

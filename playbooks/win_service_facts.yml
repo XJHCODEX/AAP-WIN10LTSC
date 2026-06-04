@@ -6,8 +6,8 @@
     - name: Service status matching filter
       ansible.windows.win_shell: |
         @(
-          Get-Service -Name '{{ service_filter_name | default("W3SVC","Spooler") }}' -ErrorAction SilentlyContinue |
-            Select-Object Name, Status, StartType
+          Get-Service -Name '{{ service_filter_name | default("*") }}' -ErrorAction SilentlyContinue |
+            Select-Object -First 20 Name, Status, StartType
         ) | ConvertTo-Json -Compress
       register: svc_json
       changed_when: false

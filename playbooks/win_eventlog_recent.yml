@@ -1,0 +1,28 @@
+---
+- name: Recent Windows event log entries (read-only)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Recent events
+      ansible.windows.win_shell: |
+        @(
+          Get-WinEvent -LogName '{{ event_log_name | default("System") }}' -MaxEvents {{ event_max_events | default(10) | int }} |
+            Select-Object @{
+              Name = 'Time'
+              Expression = { $_.TimeCreated.ToString('u') }
+            }, Id, LevelDisplayName, @{
+              Name = 'Message'
+              Expression = { ($_.Message -replace '\s+', ' ').Trim().Substring(0, [Math]::Min(200, ($_.Message -replace '\s+', ' ').Trim().Length)) }
+            }
+        ) | ConvertTo-Json -Depth 4 -Compress
+      register: ev_out
+      changed_when: false
+
+    - name: Display events
+      ansible.builtin.debug:
+        msg: "{{ item.Time }} | Id {{ item.Id }} ({{ item.LevelDisplayName }}): {{ item.Message }}"
+      vars:
+        _events: "{{ ev_out.stdout | from_json }}"
+      loop: "{{ _events if _events is sequence else [_events] }}"
+      loop_control:
+        label: "{{ item.Id }}"

@@ -1,0 +1,9 @@
+---
+- name: Optional Windows features (workload components)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: "Ensure feature {{ feature_name | default('IIS-WebServerRole') }} is {{ feature_state | default('present') }}"
+      ansible.windows.win_optional_feature:
+        name: "{{ feature_name | default('IIS-WebServerRole') }}"
+        state: "{{ feature_state | default('present') }}"

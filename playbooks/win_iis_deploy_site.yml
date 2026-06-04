@@ -1,0 +1,39 @@
+---
+- name: Deploy demo IIS site (workload)
+  hosts: windows
+  gather_facts: false
+  vars:
+    iis_site_name: "{{ iis_site_name | default('AAPDemo') }}"
+    iis_site_port: "{{ iis_site_port | default(8080) | int }}"
+    iis_site_path: "{{ iis_site_path | default('C:/inetpub/wwwroot/aapdemo') }}"
+  tasks:
+    - name: Ensure IIS web server role
+      ansible.windows.win_optional_feature:
+        name: IIS-WebServerRole
+        state: present
+
+    - name: Ensure site content directory
+      ansible.windows.win_file:
+        path: "{{ iis_site_path }}"
+        state: directory
+
+    - name: Deploy index.html
+      ansible.windows.win_copy:
+        content: |
+          <!DOCTYPE html><html><body><h1>AAP LTSC Demo Site</h1><p>Deployed by Ansible.</p></body></html>
+        dest: "{{ iis_site_path }}/index.html"
+
+    - name: Create IIS site and binding
+      ansible.windows.win_shell: |
+        Import-Module WebAdministration
+        if (-not (Get-Website -Name '{{ iis_site_name }}' -ErrorAction SilentlyContinue)) {
+          New-Website -Name '{{ iis_site_name }}' -PhysicalPath '{{ iis_site_path }}' -Port {{ iis_site_port }}
+        } else {
+          Set-ItemProperty "IIS:\Sites\{{ iis_site_name }}" -Name physicalPath -Value '{{ iis_site_path }}'
+        }
+        Start-Website -Name '{{ iis_site_name }}'
+      register: iis_deploy
+
+    - name: Site deployed
+      ansible.builtin.debug:
+        msg: "IIS site {{ iis_site_name }} on port {{ iis_site_port }} at {{ iis_site_path }}"

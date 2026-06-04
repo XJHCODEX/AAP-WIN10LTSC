@@ -1,0 +1,35 @@
+---
+- name: Inspect Windows Firewall rules (read-only)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Sample firewall rules
+      ansible.windows.win_shell: |
+        @(
+          Get-NetFirewallRule |
+            Select-Object -First {{ firewall_rule_sample | default(15) | int }} @{
+              Name = 'RuleName'
+              Expression = { $_.DisplayName }
+            }, @{
+              Name = 'StatusLabel'
+              Expression = { if ([bool]$_.Enabled) { 'ENABLED' } else { 'DISABLED' } }
+            }, @{
+              Name = 'Traffic'
+              Expression = {
+                $d = @{ Inbound = 'incoming'; Outbound = 'outgoing' }[$_.Direction.ToString()]
+                $a = @{ Allow = 'ALLOW'; Block = 'BLOCK' }[$_.Action.ToString()]
+                "{0} — {1}" -f $d, $a
+              }
+            }
+        ) | ConvertTo-Json -Depth 4 -Compress
+      register: fw_out
+      changed_when: false
+
+    - name: Display firewall sample
+      ansible.builtin.debug:
+        msg: "[{{ item.StatusLabel }}] {{ item.RuleName }} | {{ item.Traffic }}"
+      vars:
+        _rules: "{{ fw_out.stdout | from_json }}"
+      loop: "{{ _rules if _rules is sequence else [_rules] }}"
+      loop_control:
+        label: "{{ item.RuleName }}"

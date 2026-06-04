@@ -1,0 +1,12 @@
+---
+- name: Install Windows updates (LTSC)
+  hosts: windows
+  gather_facts: false
+  tasks:
+    - name: Search and install updates
+      ansible.windows.win_updates:
+        category_names:
+          - SecurityUpdates
+          - CriticalUpdates
+        reboot: "{{ reboot_allowed | default(false) | bool }}"
+        state: installed

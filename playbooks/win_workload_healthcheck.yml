@@ -1,0 +1,42 @@
+---
+- name: Application workload health check (read-only)
+  hosts: windows
+  gather_facts: false
+  vars:
+    health_service_name: "{{ workload_service_name | default('W3SVC') }}"
+    health_tcp_port: "{{ workload_tcp_port | default(80) | int }}"
+    health_site_name: "{{ workload_iis_site_name | default('Default Web Site') }}"
+  tasks:
+    - name: Check service, port, and IIS site
+      ansible.windows.win_shell: |
+        $svc = Get-Service -Name '{{ health_service_name }}' -ErrorAction SilentlyContinue
+        $portOpen = $false
+        try {
+          $r = Test-NetConnection -ComputerName localhost -Port {{ health_tcp_port }} -WarningAction SilentlyContinue
+          $portOpen = [bool]$r.TcpTestSucceeded
+        } catch { $portOpen = $false }
+        $siteState = 'n/a'
+        if (Get-Module -ListAvailable WebAdministration) {
+          Import-Module WebAdministration -ErrorAction SilentlyContinue
+          $site = Get-Website -Name '{{ health_site_name }}' -ErrorAction SilentlyContinue
+          if ($site) { $siteState = $site.State.ToString() }
+        }
+        @{
+          Service = if ($svc) { $svc.Name } else { '{{ health_service_name }}' }
+          ServiceStatus = if ($svc) { $svc.Status.ToString() } else { 'NotFound' }
+          TcpPort = {{ health_tcp_port }}
+          PortListening = $portOpen
+          IISSite = '{{ health_site_name }}'
+          IISSiteState = $siteState
+        } | ConvertTo-Json -Compress
+      register: health_json
+      changed_when: false
+
+    - name: Workload health summary
+      ansible.builtin.debug:
+        msg:
+          - "Service {{ _h.Service }}: {{ _h.ServiceStatus }}"
+          - "TCP {{ _h.TcpPort }} listening: {{ _h.PortListening }}"
+          - "IIS site {{ _h.IISSite }}: {{ _h.IISSiteState }}"
+      vars:
+        _h: "{{ health_json.stdout | from_json }}"
