@@ -27,3 +27,5 @@ compliance_report_http_port: 8080
 compliance_report_iis_site_name: AAP-Compliance
 compliance_report_iis_path: "C:/inetpub/wwwroot/aap-compliance"
 compliance_report_firewall_rule_name: AAP-LTSC-Compliance-HTTP
+# Set false if port 8080 (or compliance_report_http_port) is already allowed on the host/cloud
+compliance_report_manage_firewall: false

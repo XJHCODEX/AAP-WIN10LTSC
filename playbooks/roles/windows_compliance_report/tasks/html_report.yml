@@ -74,7 +74,7 @@
     - compliance_report_http_enabled | bool
 
 - name: Allow inbound TCP for compliance report HTTP (Windows Firewall)
-  ansible.windows.win_firewall_rule:
+  community.windows.win_firewall_rule:
     name: "{{ compliance_report_firewall_rule_name }}"
     localport: "{{ compliance_report_http_port | int }}"
     action: allow
@@ -85,6 +85,7 @@
   when:
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
+    - compliance_report_manage_firewall | bool
 
 - name: Build compliance report browser URL
   ansible.builtin.set_fact:

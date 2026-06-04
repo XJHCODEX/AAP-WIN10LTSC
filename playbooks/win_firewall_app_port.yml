@@ -4,7 +4,7 @@
   gather_facts: false
   tasks:
     - name: "Firewall rule {{ app_firewall_rule_name | default('AAP-LTSC-App-Port') }}"
-      ansible.windows.win_firewall_rule:
+      community.windows.win_firewall_rule:
         name: "{{ app_firewall_rule_name | default('AAP-LTSC-App-Port') }}"
         localport: "{{ app_tcp_port | default(8080) | int }}"
         action: allow
