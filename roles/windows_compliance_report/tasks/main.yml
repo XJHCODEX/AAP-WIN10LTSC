@@ -1,0 +1,233 @@
+---
+- name: Run compliance checks on Windows host
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'SilentlyContinue'
+    $maxPatchDays = {{ compliance_max_patch_age_days | int }}
+    $maxSigDays = {{ compliance_max_defender_signature_age_days | int }}
+    $minPwdLen = {{ compliance_min_password_length | int }}
+
+    function Add-Check {
+      param($Id, $Category, $Title, $Result, $Evidence, $Remediation)
+      $script:checks += [PSCustomObject]@{
+        id = $Id; category = $Category; title = $Title
+        result = $Result; evidence = $Evidence; remediation = $Remediation
+      }
+    }
+    $checks = @()
+
+    # --- Account security ---
+    $guest = Get-LocalUser -Name 'Guest' -ErrorAction SilentlyContinue
+    if ($guest -and $guest.Enabled) {
+      Add-Check 'SEC-001' 'Account Security' 'Guest account disabled' 'FAIL' 'Guest is enabled' 'Disable the Guest account'
+    } else {
+      Add-Check 'SEC-001' 'Account Security' 'Guest account disabled' 'PASS' 'Guest disabled or not present' ''
+    }
+
+    $netAccounts = net accounts 2>$null | Out-String
+    $pwdLen = 0
+    if ($netAccounts -match 'Minimum password length\s+(\d+)') { $pwdLen = [int]$Matches[1] }
+    if ($pwdLen -ge $minPwdLen) {
+      Add-Check 'SEC-002' 'Account Security' "Minimum password length >= $minPwdLen" 'PASS' "Minimum password length is $pwdLen" ''
+    } else {
+      Add-Check 'SEC-002' 'Account Security' "Minimum password length >= $minPwdLen" 'FAIL' "Minimum password length is $pwdLen" 'Set local security policy password minimum length'
+    }
+
+    # --- Auditing ---
+    $auditLogon = (auditpol /get /subcategory:'Logon' 2>$null | Select-String 'Logon').ToString()
+    if ($auditLogon -match 'Success and Failure|Success') {
+      Add-Check 'AUD-001' 'Auditing' 'Audit logon events' 'PASS' $auditLogon.Trim() ''
+    } else {
+      Add-Check 'AUD-001' 'Auditing' 'Audit logon events' 'WARN' ($auditLogon.Trim()) 'Enable Success and Failure for Logon subcategory'
+    }
+
+    $auditPolChg = (auditpol /get /subcategory:'Policy Change' 2>$null | Select-String 'Policy Change').ToString()
+    if ($auditPolChg -match 'Success and Failure|Success') {
+      Add-Check 'AUD-002' 'Auditing' 'Audit policy change' 'PASS' $auditPolChg.Trim() ''
+    } else {
+      Add-Check 'AUD-002' 'Auditing' 'Audit policy change' 'WARN' ($auditPolChg.Trim()) 'Enable auditing for Policy Change'
+    }
+
+    # --- Firewall ---
+    $fw = Get-NetFirewallProfile -ErrorAction SilentlyContinue
+    $fwOff = @($fw | Where-Object { -not $_.Enabled } | ForEach-Object { $_.Name })
+    if ($fwOff.Count -eq 0) {
+      Add-Check 'FW-001' 'Network' 'Windows Firewall enabled (all profiles)' 'PASS' 'Domain, Private, and Public profiles enabled' ''
+    } else {
+      Add-Check 'FW-001' 'Network' 'Windows Firewall enabled (all profiles)' 'FAIL' ("Disabled profiles: " + ($fwOff -join ', ')) 'Enable Windows Firewall on all profiles'
+    }
+
+    $pub = $fw | Where-Object { $_.Name -eq 'Public' } | Select-Object -First 1
+    if ($pub -and $pub.DefaultInboundAction -eq 'Block') {
+      Add-Check 'FW-002' 'Network' 'Public profile blocks inbound by default' 'PASS' 'DefaultInboundAction=Block' ''
+    } else {
+      Add-Check 'FW-002' 'Network' 'Public profile blocks inbound by default' 'WARN' 'Public inbound default is not Block' 'Set Public profile default inbound to Block'
+    }
+
+    # --- Endpoint protection ---
+    $mp = Get-MpComputerStatus -ErrorAction SilentlyContinue
+    if ($mp -and $mp.RealTimeProtectionEnabled) {
+      Add-Check 'DEF-001' 'Endpoint Protection' 'Microsoft Defender real-time protection' 'PASS' 'RealTimeProtectionEnabled=True' ''
+    } else {
+      Add-Check 'DEF-001' 'Endpoint Protection' 'Microsoft Defender real-time protection' 'FAIL' 'Real-time protection off or Defender unavailable' 'Enable Defender real-time protection'
+    }
+
+    if ($mp -and $mp.AntivirusSignatureLastUpdated) {
+      $sigAge = ((Get-Date) - $mp.AntivirusSignatureLastUpdated).TotalDays
+      if ($sigAge -le $maxSigDays) {
+        Add-Check 'DEF-002' 'Endpoint Protection' 'Defender signatures current' 'PASS' ("Last updated {0:F0} day(s) ago" -f $sigAge) ''
+      } else {
+        Add-Check 'DEF-002' 'Endpoint Protection' 'Defender signatures current' 'WARN' ("Signatures {0:F0} days old" -f $sigAge) 'Update Defender signatures'
+      }
+    } else {
+      Add-Check 'DEF-002' 'Endpoint Protection' 'Defender signatures current' 'WARN' 'Signature age unknown' 'Verify Defender signature update source'
+    }
+
+    # --- Patch management ---
+    $latestHotfix = Get-HotFix -ErrorAction SilentlyContinue | Sort-Object InstalledOn -Descending | Select-Object -First 1
+    if ($latestHotfix -and $latestHotfix.InstalledOn) {
+      $patchAge = ((Get-Date) - $latestHotfix.InstalledOn).TotalDays
+      if ($patchAge -le $maxPatchDays) {
+        Add-Check 'UPD-001' 'Patch Management' "Recent hotfix within $maxPatchDays days" 'PASS' ("{0} installed {1:yyyy-MM-dd}" -f $latestHotfix.HotFixID, $latestHotfix.InstalledOn) ''
+      } else {
+        Add-Check 'UPD-001' 'Patch Management' "Recent hotfix within $maxPatchDays days" 'WARN' ("Last hotfix {0:F0} days ago ({1})" -f $patchAge, $latestHotfix.HotFixID) 'Apply security updates per LTSC servicing plan'
+      }
+    } else {
+      Add-Check 'UPD-001' 'Patch Management' "Recent hotfix within $maxPatchDays days" 'WARN' 'No hotfix history found' 'Verify Windows Update or WSUS patching'
+    }
+
+    $wua = Get-Service -Name wuauserv -ErrorAction SilentlyContinue
+    if ($wua -and $wua.Status -eq 'Running') {
+      Add-Check 'UPD-002' 'Patch Management' 'Windows Update service running' 'PASS' 'wuauserv is Running' ''
+    } else {
+      Add-Check 'UPD-002' 'Patch Management' 'Windows Update service running' 'WARN' ('wuauserv status: ' + $(if ($wua) { $wua.Status } else { 'NotFound' })) 'Start Windows Update service if patching is required'
+    }
+
+    # --- Encryption ---
+    $bde = Get-BitLockerVolume -MountPoint 'C:' -ErrorAction SilentlyContinue
+    if ($bde -and $bde.ProtectionStatus -eq 'On') {
+      Add-Check 'ENC-001' 'Encryption' 'BitLocker protection on OS volume' 'PASS' ('VolumeStatus=' + $bde.VolumeStatus) ''
+    } elseif ($bde) {
+      Add-Check 'ENC-001' 'Encryption' 'BitLocker protection on OS volume' 'WARN' ('ProtectionStatus=' + $bde.ProtectionStatus) 'Enable BitLocker on the OS volume for data-at-rest protection'
+    } else {
+      Add-Check 'ENC-001' 'Encryption' 'BitLocker protection on OS volume' 'INFO' 'BitLocker status unavailable' 'Confirm BitLocker feature and TPM availability'
+    }
+
+    # --- Remote access ---
+    $rdpEnabled = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name fDenyTSConnections -ErrorAction SilentlyContinue).fDenyTSConnections -eq 0
+    $nla = (Get-ItemProperty 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name UserAuthentication -ErrorAction SilentlyContinue).UserAuthentication -eq 1
+    if (-not $rdpEnabled) {
+      Add-Check 'RDP-001' 'Remote Access' 'Remote Desktop exposure' 'PASS' 'RDP disabled (fDenyTSConnections=1)' ''
+    } elseif ($nla) {
+      Add-Check 'RDP-001' 'Remote Access' 'Remote Desktop exposure' 'WARN' 'RDP enabled with NLA required' 'Disable RDP if not required; otherwise restrict by firewall'
+    } else {
+      Add-Check 'RDP-001' 'Remote Access' 'Remote Desktop exposure' 'FAIL' 'RDP enabled without NLA' 'Require Network Level Authentication or disable RDP'
+    }
+
+    # --- Cryptography ---
+    $tls10 = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.0\Server' -Name Enabled -ErrorAction SilentlyContinue).Enabled
+    if ($null -eq $tls10 -or $tls10 -eq 0) {
+      Add-Check 'TLS-001' 'Cryptography' 'TLS 1.0 disabled (server)' 'PASS' 'TLS 1.0 not enabled' ''
+    } else {
+      Add-Check 'TLS-001' 'Cryptography' 'TLS 1.0 disabled (server)' 'FAIL' 'TLS 1.0 server enabled' 'Disable TLS 1.0 via SCHANNEL registry settings'
+    }
+
+    $tls11 = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols\TLS 1.1\Server' -Name Enabled -ErrorAction SilentlyContinue).Enabled
+    if ($null -eq $tls11 -or $tls11 -eq 0) {
+      Add-Check 'TLS-002' 'Cryptography' 'TLS 1.1 disabled (server)' 'PASS' 'TLS 1.1 not enabled' ''
+    } else {
+      Add-Check 'TLS-002' 'Cryptography' 'TLS 1.1 disabled (server)' 'FAIL' 'TLS 1.1 server enabled' 'Disable TLS 1.1 via SCHANNEL registry settings'
+    }
+
+    $smb1 = (Get-WindowsOptionalFeature -Online -FeatureName SMB1Protocol -ErrorAction SilentlyContinue).State
+    if ($smb1 -ne 'Enabled') {
+      Add-Check 'SMB-001' 'Protocols' 'SMBv1 disabled' 'PASS' ('SMB1Protocol state: ' + $(if ($smb1) { $smb1 } else { 'NotPresent' })) ''
+    } else {
+      Add-Check 'SMB-001' 'Protocols' 'SMBv1 disabled' 'FAIL' 'SMB1Protocol is Enabled' 'Disable SMBv1 optional feature'
+    }
+
+    # --- System hardening ---
+    $uac = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -Name EnableLUA -ErrorAction SilentlyContinue).EnableLUA
+    if ($uac -eq 1) {
+      Add-Check 'UAC-001' 'System Hardening' 'User Account Control enabled' 'PASS' 'EnableLUA=1' ''
+    } else {
+      Add-Check 'UAC-001' 'System Hardening' 'User Account Control enabled' 'FAIL' 'UAC disabled' 'Set EnableLUA to 1'
+    }
+
+    $psPol = Get-ExecutionPolicy -Scope LocalMachine -ErrorAction SilentlyContinue
+    if ($psPol -in @('Restricted', 'AllSigned', 'RemoteSigned')) {
+      Add-Check 'PS-001' 'PowerShell' 'Execution policy baseline' 'PASS' ("LocalMachine policy: $psPol") ''
+    } else {
+      Add-Check 'PS-001' 'PowerShell' 'Execution policy baseline' 'WARN' ("LocalMachine policy: $psPol") 'Use Restricted, AllSigned, or RemoteSigned for servers'
+    }
+
+    # --- LTSC identity ---
+    $os = Get-CimInstance Win32_OperatingSystem
+    if ($os.Caption -match 'LTSC') {
+      Add-Check 'LTSC-001' 'LTSC' 'Operating system is LTSC channel' 'PASS' $os.Caption ''
+    } else {
+      Add-Check 'LTSC-001' 'LTSC' 'Operating system is LTSC channel' 'INFO' $os.Caption 'Host is not LTSC — adjust compliance profile if needed'
+    }
+
+    # --- Services ---
+    $defSvc = Get-Service -Name WinDefend -ErrorAction SilentlyContinue
+    if ($defSvc -and $defSvc.Status -eq 'Running') {
+      Add-Check 'SVC-001' 'Services' 'Windows Defender service running' 'PASS' 'WinDefend Running' ''
+    } else {
+      Add-Check 'SVC-001' 'Services' 'Windows Defender service running' 'WARN' ('WinDefend: ' + $(if ($defSvc) { $defSvc.Status } else { 'NotFound' })) 'Ensure endpoint protection service is running'
+    }
+
+    $pass = @($checks | Where-Object { $_.result -eq 'PASS' }).Count
+    $fail = @($checks | Where-Object { $_.result -eq 'FAIL' }).Count
+    $warn = @($checks | Where-Object { $_.result -eq 'WARN' }).Count
+    $info = @($checks | Where-Object { $_.result -eq 'INFO' }).Count
+    $total = $checks.Count
+    $score = if ($total -gt 0) { [math]::Round((($pass + ($warn * 0.5)) / $total) * 100, 1) } else { 0 }
+
+    @{
+      profile = '{{ compliance_report_profile }}'
+      title = '{{ compliance_report_title }}'
+      version = '{{ compliance_report_version }}'
+      hostname = $env:COMPUTERNAME
+      generated_utc = (Get-Date).ToUniversalTime().ToString('u')
+      summary = @{ total = $total; pass = $pass; fail = $fail; warn = $warn; info = $info; score_percent = $score }
+      checks = $checks
+    } | ConvertTo-Json -Depth 6 -Compress
+  register: compliance_raw
+  changed_when: false
+
+- name: Parse compliance report
+  ansible.builtin.set_fact:
+    compliance_report: "{{ compliance_raw.stdout | from_json }}"
+
+- name: Compliance report header
+  ansible.builtin.debug:
+    msg:
+      - "============================================================"
+      - " {{ compliance_report.title }}"
+      - " Profile: {{ compliance_report.profile }} v{{ compliance_report.version }}"
+      - " Host: {{ compliance_report.hostname }} | {{ compliance_report.generated_utc }}"
+      - " Score: {{ compliance_report.summary.score_percent }}% (PASS {{ compliance_report.summary.pass }}, FAIL {{ compliance_report.summary.fail }}, WARN {{ compliance_report.summary.warn }}, INFO {{ compliance_report.summary.info }})"
+      - "============================================================"
+
+- name: Compliance findings (one line per control)
+  ansible.builtin.debug:
+    msg: "[{{ item.result }}] {{ item.id }} | {{ item.category }} | {{ item.title }} — {{ item.evidence }}"
+  loop: "{{ compliance_report.checks }}"
+  loop_control:
+    label: "{{ item.id }} {{ item.result }}"
+
+- name: Failed control remediation hints
+  ansible.builtin.debug:
+    msg: "REMEDIATE {{ item.id }}: {{ item.remediation }}"
+  loop: "{{ compliance_report.checks | selectattr('result', 'equalto', 'FAIL') | list }}"
+  when: item.remediation | length > 0
+  loop_control:
+    label: "{{ item.id }}"
+
+- name: Compliance report footer
+  ansible.builtin.debug:
+    msg:
+      - "============================================================"
+      - " End of compliance report — {{ compliance_report.hostname }}"
+      - " Overall score: {{ compliance_report.summary.score_percent }}%"
+      - "============================================================"

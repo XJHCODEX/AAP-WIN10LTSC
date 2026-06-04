@@ -1,0 +1,10 @@
+---
+- name: Windows LTSC compliance report (read-only)
+  hosts: windows
+  gather_facts: false
+  vars:
+    # Override at job launch for stricter/looser baselines
+    # compliance_max_patch_age_days: 60
+    # compliance_min_password_length: 14
+  roles:
+    - role: windows_compliance_report
