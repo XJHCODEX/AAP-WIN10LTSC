@@ -1,6 +1,6 @@
 # AAP-WIN10LTSC
 
-Windows **10 LTSC** playbooks for **Ansible Automation Platform** demos over **WinRM**, with **application workload** use cases (IIS, services, firewall ports) alongside operational tasks (facts, logs, patches, **compliance reporting**).
+Windows **10 LTSC** playbooks for **Ansible Automation Platform** demos over **WinRM**, with **application workload** use cases (IIS, services, firewall ports) alongside operational tasks (facts, logs, patches).
 
 ## Inventory and Controller
 
@@ -9,23 +9,11 @@ Windows **10 LTSC** playbooks for **Ansible Automation Platform** demos over **W
 - Inventory **WindowsLTSC** in org **Demo - L2** defines group `windows`, host `win10-ltsc`, and WinRM connection variables.
 - SCM project **GitHub - WindowsLTSC** syncs this repo; job templates use prefix **LTSC - Windows**.
 
-## Compliance reporting
-
-| Artifact | Purpose |
-|----------|--------|
-| `playbooks/win_compliance_report.yml` | Playbook entry point |
-| `roles/windows_compliance_report/` | Read-only checks + scored stdout |
-| `compliance/profiles/ltsc_workstation.md` | Control catalog reference |
-| AAP template **LTSC - Windows Compliance Report** | Run against inventory **WindowsLTSC** |
-
-This is a **baseline audit** (19 controls) for demos—not a full CIS/STIG assessment. For STIG *remediation*, see [ansible-lockdown/Windows-10-STIG](https://github.com/ansible-lockdown/Windows-10-STIG).
-
 ## Playbook index
 
 | Playbook | Purpose | Risk |
 |----------|---------|------|
 | `playbooks/win_connectivity.yml` | WinRM smoke test | Read-only |
-| `playbooks/win_compliance_report.yml` | Scored compliance report (role-based) | Read-only |
 | `playbooks/win_gather_facts.yml` | OS / memory facts | Read-only |
 | `playbooks/win_ltsc_edition_facts.yml` | LTSC edition / build | Read-only |
 | `playbooks/win_disk_facts.yml` | Disk and volume layout | Read-only |
@@ -46,7 +34,6 @@ This is a **baseline audit** (19 controls) for demos—not a full CIS/STIG asses
 
 ## Extra variables (examples)
 
-- **win_compliance_report.yml**: `compliance_max_patch_age_days`, `compliance_min_password_length`
 - **win_app_service_configure.yml**: `service_name`, `service_state`
 - **win_iis_deploy_site.yml**: `iis_site_name`, `iis_site_port`, `iis_site_path`
 - **win_firewall_app_port.yml**: `app_firewall_rule_name`, `app_tcp_port`
