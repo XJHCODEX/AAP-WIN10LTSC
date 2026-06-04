@@ -34,5 +34,7 @@ compliance_report_iis_reboot: true
 compliance_report_iis_features:
   - IIS-WebServerRole
   - IIS-WebServerManagementTools
+  - IIS-CommonHttpFeatures
   - IIS-StaticContent
   - IIS-DefaultDocument
+  - IIS-HttpErrors
