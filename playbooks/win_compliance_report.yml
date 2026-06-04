@@ -1,4 +1,4 @@
-﻿---
+---
 - name: Windows LTSC compliance report (read-only)
   hosts: windows
   gather_facts: false
