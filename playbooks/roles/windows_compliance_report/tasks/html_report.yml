@@ -110,6 +110,13 @@
     - compliance_report_html_enabled | bool
     - compliance_report_http_enabled | bool
 
+- name: Normalize IIS content path for PowerShell
+  ansible.builtin.set_fact:
+    compliance_report_iis_path_win: "{{ compliance_report_iis_path | replace('/', '\\\\') }}"
+  when:
+    - compliance_report_html_enabled | bool
+    - compliance_report_http_enabled | bool
+
 - name: Configure IIS site for compliance report (appcmd)
   ansible.windows.win_shell: |
     $ErrorActionPreference = 'Stop'
@@ -118,7 +125,7 @@
       throw "IIS appcmd.exe not found. IIS-WebServerRole may still be installing."
     }
     $siteName = '{{ compliance_report_iis_site_name }}'
-    $path = '{{ compliance_report_iis_path | replace("/", "\\") }}'
+    $path = '{{ compliance_report_iis_path_win }}'
     $port = {{ compliance_report_http_port | int }}
     $binding = "http/*:${port}:"
     & $appcmd list apppool "$siteName" 2>$null | Out-Null
@@ -146,13 +153,13 @@
 
 - name: Grant IIS accounts read access to site folder
   ansible.windows.win_shell: |
-    $path = '{{ compliance_report_iis_path | replace("/", "\\") }}'
+    $path = '{{ compliance_report_iis_path_win }}'
     $siteName = '{{ compliance_report_iis_site_name }}'
     icacls $path /inheritance:e | Out-Null
     icacls $path /grant 'IIS_IUSRS:(OI)(CI)RX' /T | Out-Null
     icacls $path /grant 'IUSR:(OI)(CI)RX' /T | Out-Null
-    icacls $path /grant ('IIS AppPool\' + $siteName + ':(OI)(CI)RX') /T | Out-Null
-    icacls $path /grant 'IIS AppPool\DefaultAppPool:(OI)(CI)RX' /T | Out-Null
+    icacls $path /grant "IIS AppPool\$($siteName):(OI)(CI)RX" /T | Out-Null
+    icacls $path /grant "IIS AppPool\DefaultAppPool:(OI)(CI)RX" /T | Out-Null
     icacls $path /grant 'BUILTIN\Users:(OI)(CI)RX' /T | Out-Null
   when:
     - compliance_report_html_enabled | bool
